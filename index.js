@@ -51,14 +51,23 @@ async function run() {
       res.send(jobs);
     });
 
-    // company related api
+    // company related apis
+
+    app.get("/api/my/companies", async (req, res) => {
+      const query = {};
+      if (req.query.recruiterId) {
+        query.recruiterId = req.query.recruiterId;
+      }
+      const cursor = await companyCollection.find(query);
+      const companies = await cursor.toArray();
+      res.send(companies);
+    });
 
     app.post("/api/companies", async (req, res) => {
       const newCompany = req.body;
       const result = await companyCollection.insertOne(newCompany);
       res.send(result);
     });
-
 
     await client.db("admin").command({ ping: 1 });
     console.log(
