@@ -28,6 +28,7 @@ async function run() {
     await client.connect();
     const database = client.db("placify_db");
     const jobCollection = database.collection("jobs");
+    const companyCollection = database.collection("companies");
 
     // post a job
     app.post("/api/jobs", async (req, res) => {
@@ -38,9 +39,26 @@ async function run() {
 
     // get all jobs
     app.get("/api/jobs", async (req, res) => {
-      const jobs = await jobCollection.find().toArray();
+      const query = {};
+      if (req.query.companyId) {
+        query.companyId = req.query.companyId;
+      }
+      if (req.query.status) {
+        query.status = req.query.status;
+      }
+      const cursor = await jobCollection.find(query);
+      const jobs = await cursor.toArray();
       res.send(jobs);
     });
+
+    // company related api
+
+    app.post("/api/companies", async (req, res) => {
+      const newCompany = req.body;
+      const result = await companyCollection.insertOne(newCompany);
+      res.send(result);
+    });
+
 
     await client.db("admin").command({ ping: 1 });
     console.log(
