@@ -1,6 +1,6 @@
-const express = require('express')
-require('dotenv').config()
-const app = express()
+const express = require("express");
+require("dotenv").config();
+const app = express();
 const cors = require("cors");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 const port = 5000;
@@ -32,7 +32,11 @@ async function run() {
 
     // post a job
     app.post("/api/jobs", async (req, res) => {
-      const newJob = req.body;
+      const Job = req.body;
+      const newJob = {
+        ...Job,
+        createdAt: new Date(),
+      };
       const result = await jobCollection.insertOne(newJob);
       res.send(result);
     });
@@ -54,17 +58,29 @@ async function run() {
     // company related apis
 
     app.get("/api/my/companies", async (req, res) => {
-      const query = {};
-      if (req.query.recruiterId) {
+      try {
+        const query = {};
+        if (!req.query.recruiterId || req.query.recruiterId === "undefined") {
+          return res.status(400).json({ error: "Recruiter ID is required" });
+        }
+
         query.recruiterId = req.query.recruiterId;
+        const company = await companyCollection.findOne(query);
+        if (!company) {
+          return res.json(null);
+        }
+        res.json(company);
+      } catch (error) {
+        res.status(500).json({ error: "Internal Server Error" });
       }
-      const cursor = await companyCollection.find(query);
-      const companies = await cursor.toArray();
-      res.send(companies);
     });
 
     app.post("/api/companies", async (req, res) => {
-      const newCompany = req.body;
+      const company = req.body;
+      const newCompany = {
+        ...company,
+        createdAt: new Date(),
+      };
       const result = await companyCollection.insertOne(newCompany);
       res.send(result);
     });
@@ -79,10 +95,6 @@ async function run() {
 }
 run().catch(console.dir);
 
-
-
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
-
-
+  console.log(`Example app listening on port ${port}`);
+});
