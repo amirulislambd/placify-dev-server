@@ -29,6 +29,13 @@ async function run() {
     const database = client.db("placify_db");
     const jobCollection = database.collection("jobs");
     const companyCollection = database.collection("companies");
+    const userCollection = database.collection("user");
+
+    // user related apis
+    app.get("/api/users", async (req, res) => {
+      const users = await userCollection.find().skip(4).toArray();
+      res.send(users);
+    });
 
     // post a job
     app.post("/api/jobs", async (req, res) => {
@@ -56,6 +63,10 @@ async function run() {
     });
 
     // company related apis
+    app.get("/api/companies", async (req, res) => {
+      const companies = await companyCollection.find().skip(1).toArray();
+      res.send(companies);
+    });
 
     app.get("/api/my/companies", async (req, res) => {
       try {
