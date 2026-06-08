@@ -29,6 +29,7 @@ async function run() {
     const database = client.db("placify_db");
     const jobCollection = database.collection("jobs");
     const companyCollection = database.collection("companies");
+    const applicationCollection = database.collection("applications");
     const userCollection = database.collection("user");
 
     // user related apis
@@ -68,6 +69,18 @@ async function run() {
       const jobs = await cursor.toArray();
       res.send(jobs);
     });
+
+    // application related apis
+    app.post("/api/applications", async (req, res) => {
+      const application = req.body;
+      const newApplication = {
+        ...application,
+        createdAt: new Date(),
+      };
+      const result = await applicationCollection.insertOne(newApplication);
+      res.send(result);
+    });
+
 
     // company related apis
     app.get("/api/companies", async (req, res) => {
