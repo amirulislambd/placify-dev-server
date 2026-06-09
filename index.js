@@ -32,7 +32,7 @@ async function run() {
     const applicationCollection = database.collection("applications");
     const userCollection = database.collection("user");
     const planCollection = database.collection("plans");
-
+    const subscriptionCollection = database.collection("subscriptions");
     // user related apis
     app.get("/api/users", async (req, res) => {
       const users = await userCollection.find().skip(4).toArray();
@@ -103,6 +103,26 @@ async function run() {
       }
       const plan = await planCollection.findOne(query);
       res.send(plan);
+    });
+
+    // subscriptions related apis
+    app.post("/api/subscriptions", async (req, res) => {
+      const data = req.body;
+      const newSubscription = {
+        ...data,
+        createdAt: new Date(),
+      };
+      const result = await subscriptionCollection.insertOne(newSubscription);
+
+      // updated the user plan information
+      const filter = { email: data.email };
+      const updatePlan = {
+        $set: {
+          plan: data.planId,
+        },
+      };
+      const updatedResult = await userCollection.updateOne(filter, updatePlan);
+      res.send({ result, updatedResult });
     });
 
     // company related apis
