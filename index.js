@@ -31,6 +31,7 @@ async function run() {
     const companyCollection = database.collection("companies");
     const applicationCollection = database.collection("applications");
     const userCollection = database.collection("user");
+    const planCollection = database.collection("plans");
 
     // user related apis
     app.get("/api/users", async (req, res) => {
@@ -71,18 +72,18 @@ async function run() {
     });
 
     // application related apis
-app.get("/api/applications", async (req, res) => {
-  const query = {};
-  if (req.query.applicantId) {
-    query.applicantId = req.query.applicantId;
-  }
-  if (req.query.jobId) {
-    query.jobId = req.query.jobId;
-  }
-  const cursor = await applicationCollection.find(query);
-  const applications = await cursor.toArray();
-  res.send(applications);
-});
+    app.get("/api/applications", async (req, res) => {
+      const query = {};
+      if (req.query.applicantId) {
+        query.applicantId = req.query.applicantId;
+      }
+      if (req.query.jobId) {
+        query.jobId = req.query.jobId;
+      }
+      const cursor = await applicationCollection.find(query);
+      const applications = await cursor.toArray();
+      res.send(applications);
+    });
 
     app.post("/api/applications", async (req, res) => {
       const application = req.body;
@@ -94,6 +95,15 @@ app.get("/api/applications", async (req, res) => {
       res.send(result);
     });
 
+    // plan related apis
+    app.get("/api/plans", async (req, res) => {
+      const query = {};
+      if (req.query.plan_id) {
+        query.plan_id = req.query.plan_id;
+      }
+      const plan = await planCollection.findOne(query);
+      res.send(plan);
+    });
 
     // company related apis
     app.get("/api/companies", async (req, res) => {
