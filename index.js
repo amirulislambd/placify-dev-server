@@ -127,7 +127,7 @@ async function run() {
 
     // company related apis
     app.get("/api/companies", async (req, res) => {
-      const companies = await companyCollection.find().skip(1).toArray();
+      const companies = await companyCollection.find().toArray();
       res.send(companies);
     });
 
@@ -159,6 +159,17 @@ async function run() {
       res.send(result);
     });
 
+    // ✅ Fixed
+    app.patch("/api/companies/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: { status: status },
+      };
+      const result = await companyCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
