@@ -5,12 +5,12 @@ const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const port = 5000;
 
+app.use(cors());
+app.use(express.json());
+
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
-
-app.use(cors());
-app.use(express.json());
 
 const uri = process.env.MONGO_DB_URI;
 
@@ -35,7 +35,7 @@ async function run() {
     const subscriptionCollection = database.collection("subscriptions");
     // user related apis
     app.get("/api/users", async (req, res) => {
-      const users = await userCollection.find().skip(4).toArray();
+      const users = await userCollection.find().toArray();
       res.send(users);
     });
 
@@ -47,13 +47,6 @@ async function run() {
         createdAt: new Date(),
       };
       const result = await jobCollection.insertOne(newJob);
-      res.send(result);
-    });
-
-    app.get("/api/jobs/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await jobCollection.findOne(query);
       res.send(result);
     });
 
@@ -69,6 +62,13 @@ async function run() {
       const cursor = await jobCollection.find(query);
       const jobs = await cursor.toArray();
       res.send(jobs);
+    });
+
+    app.get("/api/jobs/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await jobCollection.findOne(query);
+      res.send(result);
     });
 
     // application related apis
@@ -126,8 +126,19 @@ async function run() {
     });
 
     // company related apis
+    // app.get("/api/companies", async (req, res) => {
+    //   const companies = await companyCollection.find().toArray();
+    //   res.send(companies);
+    // });
     app.get("/api/companies", async (req, res) => {
       const companies = await companyCollection.find().toArray();
+
+      for (company of companies) {
+        const filter = { companyId: company._id.toString() };
+        const jobCount = await jobCollection.countDocuments(filter);
+        company.jobCount = jobCount;
+      }
+
       res.send(companies);
     });
 
@@ -159,7 +170,6 @@ async function run() {
       res.send(result);
     });
 
-    // ✅ Fixed
     app.patch("/api/companies/:id", async (req, res) => {
       const id = req.params.id;
       const { status } = req.body;
@@ -170,6 +180,7 @@ async function run() {
       const result = await companyCollection.updateOne(filter, updatedDoc);
       res.send(result);
     });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
