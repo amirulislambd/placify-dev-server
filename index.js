@@ -95,13 +95,7 @@ async function run() {
       next();
     };
 
-    // user related apis
-    app.get("/api/users", async (req, res) => {
-      const users = await userCollection.find().toArray();
-      res.send(users);
-    });
-
-    // post a job
+    // job related apis
     app.post("/api/jobs", async (req, res) => {
       const Job = req.body;
       const newJob = {
@@ -115,15 +109,44 @@ async function run() {
     // get all jobs by company'
     app.get("/api/jobs", async (req, res) => {
       const query = {};
-      if (req.query.companyId) {
-        query.companyId = req.query.companyId;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+      if (req.query.companyId) query.companyId = req.query.companyId;
+      if (req.query.status) query.status = req.query.status;
+
+      // ── Search ──────────────────────────────────────────────────────
+      if (req.query.q) {
+        query.$or = [
+          { jobTitle: { $regex: req.query.q, $options: "i" } },
+          { companyName: { $regex: req.query.q, $options: "i" } },
+          { category: { $regex: req.query.q, $options: "i" } },
+          { location: { $regex: req.query.q, $options: "i" } },
+        ];
       }
-      if (req.query.status) {
-        query.status = req.query.status;
+
+      // ── Filters ─────────────────────────────────────────────────────
+      if (req.query.category && req.query.category !== "All") {
+        query.category = { $regex: req.query.category, $options: "i" };
       }
-      const cursor = await jobCollection.find(query);
-      const jobs = await cursor.toArray();
-      res.send(jobs);
+      if (req.query.jobType && req.query.jobType !== "All") {
+        query.jobType = { $regex: req.query.jobType, $options: "i" };
+      }
+      if (req.query.workMode && req.query.workMode !== "All") {
+        query.workMode = { $regex: req.query.workMode, $options: "i" };
+      }
+      if (req.query.salary) {
+        const [min, max] = req.query.salary.split("-").map(Number);
+        query.minSalary = { $gte: String(min) };
+        query.maxSalary = { $lte: String(max) };
+      }
+      const total = await jobCollection.countDocuments(query);
+      const jobs = await jobCollection
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+      res.send({ jobs, total, page, limit });
     });
 
     app.get("/api/jobs/:id", async (req, res) => {
