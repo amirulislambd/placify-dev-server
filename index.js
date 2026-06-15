@@ -3,19 +3,9 @@ require("dotenv").config();
 const app = express();
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const port = 5000;
 
 app.use(cors());
 app.use(express.json());
-
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-});
-
-const logger = (req, res, next) => {
-  console.log("logger middleware", req.params);
-  next();
-};
 
 const uri = process.env.MONGO_DB_URI;
 
@@ -27,278 +17,300 @@ const client = new MongoClient(uri, {
   },
 });
 
-async function run() {
-  try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    const database = client.db("placify_db");
-    const jobCollection = database.collection("jobs");
-    const companyCollection = database.collection("companies");
-    const applicationCollection = database.collection("applications");
-    const userCollection = database.collection("user");
-    const planCollection = database.collection("plans");
-    const subscriptionCollection = database.collection("subscriptions");
-    const sessionCollection = database.collection("session");
+// ─── DB Collections (top level) ───────────────────────────────────────────────
+const database = client.db("placify_db");
+const jobCollection = database.collection("jobs");
+const companyCollection = database.collection("companies");
+const applicationCollection = database.collection("applications");
+const userCollection = database.collection("user");
+const planCollection = database.collection("plans");
+const subscriptionCollection = database.collection("subscriptions");
+const sessionCollection = database.collection("session");
 
-    // verification related
+// ─── Connect once ─────────────────────────────────────────────────────────────
+client
+  .connect()
+  .then(() => console.log("Connected to MongoDB"))
+  .catch(console.error);
 
-    const verifyToken = async (req, res, next) => {
-      console.log("verifyJWT middleware", req.headers);
-      const authorizationHeader = req.headers.authorization;
-      if (!authorizationHeader) {
-        return res.status(401).json({ error: "Unauthorized access" });
-      }
-      const token = authorizationHeader.split(" ")[1];
-      if (!token) {
-        return res.status(401).json({ error: "Unauthorized access" });
-      }
+// ─── Logger ───────────────────────────────────────────────────────────────────
+const logger = (req, res, next) => {
+  console.log("logger middleware", req.params);
+  next();
+};
 
-      const query = { token: token };
-      const session = await sessionCollection.findOne(query);
-      if (!session) {
-        return res.status(401).json({ error: "Unauthorized access" });
-      }
-      const userId = session.userId;
-      const userQuery = {
-        _id: new ObjectId(userId),
-      };
-      const user = await userCollection.findOne(userQuery);
-      if (!user) {
-        return res.status(401).json({ error: "Unauthorized access" });
-      }
-      req.suer = user;
-      next();
-    };
-
-    // must be used after verifyToken middleware
-    const verifySeeker = async (req, res, next) => {
-      if (req.suer.role !== "seeker") {
-        return res.status(403).json({ error: "Forbidden access" });
-      }
-
-      next();
-    };
-
-    // must be used after verifyToken middleware
-    const verifyRecruiter = async (req, res, next) => {
-      if (req.suer?.role !== "recruiter") {
-        return res.status(403).json({ error: "Forbidden access" });
-      }
-      next();
-    };
-
-    // must be used after verifyToken middleware
-    const verifyAdmin = async (req, res, next) => {
-      if (req.suer?.role !== "admin") {
-        return res.status(403).json({ error: "Forbidden access" });
-      }
-      next();
-    };
-
-    // job related apis
-    app.post("/api/jobs", async (req, res) => {
-      const Job = req.body;
-      const newJob = {
-        ...Job,
-        createdAt: new Date(),
-      };
-      const result = await jobCollection.insertOne(newJob);
-      res.send(result);
-    });
-
-    // get all jobs by company'
-    app.get("/api/jobs", async (req, res) => {
-      const query = {};
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 10;
-      const skip = (page - 1) * limit;
-      if (req.query.companyId) query.companyId = req.query.companyId;
-      if (req.query.status) query.status = req.query.status;
-
-      // ── Search ──────────────────────────────────────────────────────
-      if (req.query.q) {
-        query.$or = [
-          { jobTitle: { $regex: req.query.q, $options: "i" } },
-          { companyName: { $regex: req.query.q, $options: "i" } },
-          { category: { $regex: req.query.q, $options: "i" } },
-          { location: { $regex: req.query.q, $options: "i" } },
-        ];
-      }
-
-      // ── Filters ─────────────────────────────────────────────────────
-      if (req.query.category && req.query.category !== "All") {
-        query.category = { $regex: req.query.category, $options: "i" };
-      }
-      if (req.query.jobType && req.query.jobType !== "All") {
-        query.jobType = { $regex: req.query.jobType, $options: "i" };
-      }
-      if (req.query.workMode && req.query.workMode !== "All") {
-        query.workMode = { $regex: req.query.workMode, $options: "i" };
-      }
-      if (req.query.salary) {
-        const [min, max] = req.query.salary.split("-").map(Number);
-        query.minSalary = { $gte: String(min) };
-        query.maxSalary = { $lte: String(max) };
-      }
-      const total = await jobCollection.countDocuments(query);
-      const jobs = await jobCollection
-        .find(query)
-        .skip(skip)
-        .limit(limit)
-        .toArray();
-      res.send({ jobs, total, page, limit });
-    });
-
-    app.get("/api/jobs/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await jobCollection.findOne(query);
-      res.send(result);
-    });
-
-    // application related apis
-    app.get(
-      "/api/applications",
-      verifyToken,
-      verifySeeker,
-      async (req, res) => {
-        const query = {};
-        if (req.query.applicantId) {
-          query.applicantId = req.query.applicantId;
-
-          // check whether asking for user information or someone else's
-          console.log(req.suer, req.query.applicantId);
-          if (req.suer._id.toString() !== req.query.applicantId) {
-            return res.status(403).json({ error: "Forbidden access" });
-          }
-        }
-        if (req.query.jobId) {
-          query.jobId = req.query.jobId;
-        }
-        const cursor = await applicationCollection.find(query);
-        const applications = await cursor.toArray();
-        res.send(applications);
-      },
-    );
-
-    app.post("/api/applications", async (req, res) => {
-      const application = req.body;
-      const newApplication = {
-        ...application,
-        createdAt: new Date(),
-      };
-      const result = await applicationCollection.insertOne(newApplication);
-      res.send(result);
-    });
-
-    // plan related apis
-    app.get("/api/plans", async (req, res) => {
-      const query = {};
-      if (req.query.plan_id) {
-        query.plan_id = req.query.plan_id;
-      }
-      const plan = await planCollection.findOne(query);
-      res.send(plan);
-    });
-
-    // subscriptions related apis
-    app.post("/api/subscriptions", async (req, res) => {
-      const data = req.body;
-      const newSubscription = {
-        ...data,
-        createdAt: new Date(),
-      };
-      const result = await subscriptionCollection.insertOne(newSubscription);
-
-      // updated the user plan information
-      const filter = { email: data.email };
-      const updatePlan = {
-        $set: {
-          plan: data.planId,
-        },
-      };
-      const updatedResult = await userCollection.updateOne(filter, updatePlan);
-      res.send({ result, updatedResult });
-    });
-
-    // company related apis
-    // app.get("/api/companies", async (req, res) => {
-    //   const companies = await companyCollection.find().toArray();
-    //   res.send(companies);
-    // });
-    app.get(
-      "/api/companies",
-      logger,
-      verifyToken,
-      verifyAdmin,
-      async (req, res) => {
-        const companies = await companyCollection.find().toArray();
-
-        for (company of companies) {
-          const filter = { companyId: company._id.toString() };
-          const jobCount = await jobCollection.countDocuments(filter);
-          company.jobCount = jobCount;
-        }
-
-        res.send(companies);
-      },
-    );
-
-    app.get("/api/my/companies", async (req, res) => {
-      try {
-        const query = {};
-        if (!req.query.recruiterId || req.query.recruiterId === "undefined") {
-          return res.status(400).json({ error: "Recruiter ID is required" });
-        }
-
-        query.recruiterId = req.query.recruiterId;
-        const company = await companyCollection.findOne(query);
-        if (!company) {
-          return res.json(null);
-        }
-        res.json(company);
-      } catch (error) {
-        res.status(500).json({ error: "Internal Server Error" });
-      }
-    });
-
-    app.post("/api/companies", async (req, res) => {
-      const company = req.body;
-      const newCompany = {
-        ...company,
-        createdAt: new Date(),
-      };
-      const result = await companyCollection.insertOne(newCompany);
-      res.send(result);
-    });
-
-    app.patch(
-      "/api/companies/:id",
-      logger,
-      verifyToken,
-      verifyAdmin,
-      async (req, res) => {
-        const id = req.params.id;
-        const { status } = req.body;
-        const filter = { _id: new ObjectId(id) };
-        const updatedDoc = {
-          $set: { status: status },
-        };
-        const result = await companyCollection.updateOne(filter, updatedDoc);
-        res.send(result);
-      },
-    );
-
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
-  } finally {
-    // await client.close();
+// ─── Middlewares ──────────────────────────────────────────────────────────────
+const verifyToken = async (req, res, next) => {
+  const authorizationHeader = req.headers.authorization;
+  if (!authorizationHeader) {
+    return res.status(401).json({ error: "Unauthorized access" });
   }
-}
-run().catch(console.dir);
+  const token = authorizationHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized access" });
+  }
+  try {
+    const session = await sessionCollection.findOne({ token });
+    if (!session) return res.status(401).json({ error: "Unauthorized access" });
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+    const user = await userCollection.findOne({
+      _id: new ObjectId(session.userId),
+    });
+    if (!user) return res.status(401).json({ error: "Unauthorized access" });
+
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: "Unauthorized access" });
+  }
+};
+
+const verifySeeker = (req, res, next) => {
+  if (req.user?.role !== "seeker") {
+    return res.status(403).json({ error: "Forbidden access" });
+  }
+  next();
+};
+
+const verifyRecruiter = (req, res, next) => {
+  if (req.user?.role !== "recruiter") {
+    return res.status(403).json({ error: "Forbidden access" });
+  }
+  next();
+};
+
+const verifyAdmin = (req, res, next) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ error: "Forbidden access" });
+  }
+  next();
+};
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+app.get("/", (req, res) => {
+  res.send("Hello World!");
 });
+
+// ── Jobs ──────────────────────────────────────────────────────────────────────
+app.get("/api/jobs", async (req, res) => {
+  try {
+    const query = {};
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    if (req.query.companyId) query.companyId = req.query.companyId;
+    if (req.query.status) query.status = req.query.status;
+
+    if (req.query.q) {
+      query.$or = [
+        { jobTitle: { $regex: req.query.q, $options: "i" } },
+        { companyName: { $regex: req.query.q, $options: "i" } },
+        { category: { $regex: req.query.q, $options: "i" } },
+        { location: { $regex: req.query.q, $options: "i" } },
+      ];
+    }
+    if (req.query.category && req.query.category !== "All") {
+      query.category = { $regex: req.query.category, $options: "i" };
+    }
+    if (req.query.jobType && req.query.jobType !== "All") {
+      query.jobType = { $regex: req.query.jobType, $options: "i" };
+    }
+    if (req.query.workMode && req.query.workMode !== "All") {
+      query.workMode = { $regex: req.query.workMode, $options: "i" };
+    }
+    if (req.query.salary) {
+      const [min, max] = req.query.salary.split("-").map(Number);
+      query.minSalary = { $gte: String(min) };
+      query.maxSalary = { $lte: String(max) };
+    }
+
+    const [jobs, total] = await Promise.all([
+      jobCollection.find(query).skip(skip).limit(limit).toArray(),
+      jobCollection.countDocuments(query),
+    ]);
+
+    res.json({ jobs, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/jobs", async (req, res) => {
+  try {
+    const result = await jobCollection.insertOne({
+      ...req.body,
+      createdAt: new Date(),
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/api/jobs/:id", async (req, res) => {
+  try {
+    const result = await jobCollection.findOne({
+      _id: new ObjectId(req.params.id),
+    });
+    if (!result) return res.status(404).json({ error: "Job not found" });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Applications ──────────────────────────────────────────────────────────────
+app.get("/api/applications", verifyToken, verifySeeker, async (req, res) => {
+  try {
+    const query = {};
+    if (req.query.applicantId) {
+      if (req.user._id.toString() !== req.query.applicantId) {
+        return res.status(403).json({ error: "Forbidden access" });
+      }
+      query.applicantId = req.query.applicantId;
+    }
+    if (req.query.jobId) query.jobId = req.query.jobId;
+
+    const applications = await applicationCollection.find(query).toArray();
+    res.json(applications);
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/applications", async (req, res) => {
+  try {
+    const result = await applicationCollection.insertOne({
+      ...req.body,
+      createdAt: new Date(),
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Plans ─────────────────────────────────────────────────────────────────────
+app.get("/api/plans", async (req, res) => {
+  try {
+    if (req.query.plan_id) {
+      const plan = await planCollection.findOne({ plan_id: req.query.plan_id });
+      if (!plan) return res.status(404).json({ error: "Plan not found" });
+      return res.json(plan);
+    }
+    const plans = await planCollection.find().toArray();
+    res.json(plans);
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+app.post("/api/subscriptions", async (req, res) => {
+  try {
+    const data = req.body;
+    const [result, updatedResult] = await Promise.all([
+      subscriptionCollection.insertOne({ ...data, createdAt: new Date() }),
+      userCollection.updateOne(
+        { email: data.email },
+        { $set: { plan: data.planId } },
+      ),
+    ]);
+    res.json({ result, updatedResult });
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Companies ─────────────────────────────────────────────────────────────────
+app.get(
+  "/api/companies",
+  logger,
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const companies = await companyCollection.find().toArray();
+      const companiesWithCount = await Promise.all(
+        companies.map(async (company) => ({
+          ...company,
+          jobCount: await jobCollection.countDocuments({
+            companyId: company._id.toString(),
+          }),
+        })),
+      );
+      res.json(companiesWithCount);
+    } catch (error) {
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  },
+);
+
+app.get("/api/my/companies", async (req, res) => {
+  try {
+    if (!req.query.recruiterId || req.query.recruiterId === "undefined") {
+      return res.status(400).json({ error: "Recruiter ID is required" });
+    }
+    const company = await companyCollection.findOne({
+      recruiterId: req.query.recruiterId,
+    });
+    res.json(company || null);
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/api/companies", async (req, res) => {
+  try {
+    const result = await companyCollection.insertOne({
+      ...req.body,
+      createdAt: new Date(),
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.patch(
+  "/api/companies/:id",
+  logger,
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const result = await companyCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { status: req.body.status } },
+      );
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  },
+);
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      userCollection.find().skip(skip).limit(limit).toArray(),
+      userCollection.countDocuments(),
+    ]);
+    res.json({ users, total, page, limit });
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+const port = process.env.PORT || 5000;
+app.listen(port, () => console.log(`Server running on port ${port}`));
+
+module.exports = app;
