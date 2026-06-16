@@ -17,6 +17,10 @@ const client = new MongoClient(uri, {
   },
 });
 
+// ─── Connect to MongoDB ─────────────────────────────────────────────────────
+client.connect(() => console.log("Connected to MongoDB")).catch(console.dir)
+
+
 // ─── DB Collections (top level) ───────────────────────────────────────────────
 const database = client.db("placify_db");
 const jobCollection = database.collection("jobs");
@@ -27,11 +31,6 @@ const planCollection = database.collection("plans");
 const subscriptionCollection = database.collection("subscriptions");
 const sessionCollection = database.collection("session");
 
-// ─── Connect once ─────────────────────────────────────────────────────────────
-client
-  .connect()
-  .then(() => console.log("Connected to MongoDB"))
-  .catch(console.error);
 
 // ─── Logger ───────────────────────────────────────────────────────────────────
 const logger = (req, res, next) => {
@@ -134,6 +133,15 @@ app.get("/api/jobs", async (req, res) => {
     res.json({ jobs, total, page, limit });
   } catch (error) {
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get('/api/featured-jobs', async (req, res) => {
+  try {
+    const jobs = await jobCollection.find().limit( 6).toArray();
+    res.json(jobs);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -291,6 +299,79 @@ app.patch(
     }
   },
 );
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+app.get("/api/stats", verifyToken, async (req, res) => {
+  try {
+    const { role } = req.user;
+    const userId = req.user._id.toString();
+
+    if (role === "admin") {
+      const [totalUsers, totalCompanies, totalJobs, pendingApprovals] = await Promise.all([
+        userCollection.countDocuments(),
+        companyCollection.countDocuments(),
+        jobCollection.countDocuments(),
+        companyCollection.countDocuments({ status: "pending" }),
+      ]);
+      return res.json({
+        totalUsers,
+        totalCompanies,
+        totalJobs,
+        pendingApprovals,
+        reportedJobs: 0,
+        revenue: "$48k",
+      });
+    }
+
+    if (role === "recruiter") {
+      const company = await companyCollection.findOne({ recruiterId: userId });
+      if (!company) {
+        return res.json({ totalJobs: 0, totalApplicants: 0, activeJobs: 0, closedJobs: 0 });
+      }
+      const companyIdStr = company._id.toString();
+      
+      const [totalJobs, activeJobs, closedJobs] = await Promise.all([
+        jobCollection.countDocuments({ companyId: companyIdStr }),
+        jobCollection.countDocuments({ companyId: companyIdStr, status: "active" }),
+        jobCollection.countDocuments({ companyId: companyIdStr, status: { $ne: "active" } }),
+      ]);
+
+      // Collect recruiter's jobs to count applications
+      const recruiterJobs = await jobCollection.find({ companyId: companyIdStr }).toArray();
+      const jobIds = recruiterJobs.map(j => j._id.toString());
+      const totalApplicants = jobIds.length > 0 
+        ? await applicationCollection.countDocuments({ jobId: { $in: jobIds } })
+        : 0;
+
+      return res.json({
+        totalJobs,
+        totalApplicants,
+        activeJobs,
+        closedJobs,
+      });
+    }
+
+    if (role === "seeker") {
+      const [jobsApplied, pendingReview, interviews, rejected] = await Promise.all([
+        applicationCollection.countDocuments({ applicantId: userId }),
+        applicationCollection.countDocuments({ applicantId: userId, status: { $in: ["applied", "pending"] } }),
+        applicationCollection.countDocuments({ applicantId: userId, status: "interview" }),
+        applicationCollection.countDocuments({ applicantId: userId, status: "rejected" }),
+      ]);
+
+      return res.json({
+        jobsApplied,
+        pendingReview,
+        interviews,
+        rejected,
+      });
+    }
+
+    res.status(400).json({ error: "Invalid role" });
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 app.get("/api/users", verifyToken, verifyAdmin, async (req, res) => {
