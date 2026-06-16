@@ -126,7 +126,12 @@ app.get("/api/jobs", async (req, res) => {
     }
 
     const [jobs, total] = await Promise.all([
-      jobCollection.find(query).skip(skip).limit(limit).toArray(),
+      jobCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray(),
       jobCollection.countDocuments(query),
     ]);
 
